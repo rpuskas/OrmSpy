@@ -86,61 +86,55 @@ namespace OrmSpy
 
     public class AwesomeAppender : AppenderSkeleton
     {
-        public enum State
-        {
-            SearchingForSql,
-            SearchingForParamerizedSql,
-            SearchingForExecutionTime,
-            SearchingForRowCount
-        }
-
-        private State state = State.SearchingForSql;
-
+        private SearchState _state = SearchState.InitialState;
         protected override void Append(LoggingEvent loggingEvent)
         {
-            var message = RenderLoggingEvent(loggingEvent);
-            switch (state)
-            {
-                case State.SearchingForSql:
-                    if (Regex.Match(message, @"SQL: (.*)$").Success)
-                    {
-                        QueryResults.Queries++;
-                        state = State.SearchingForParamerizedSql;
-                    }
-                    break;
-                case State.SearchingForParamerizedSql:
-                    if (Regex.Match(message, @"^select.*from.*").Success)
-                    {
-                        state = Regex.Match(message, @"^select.*from.*").Success ? State.SearchingForExecutionTime : state;
-                        Console.Write(message);    
-                    }
-                    break;
-                case State.SearchingForExecutionTime:
-                    var match = Regex.Match(message, @"ExecuteReader took (\d*) ms");
-                    if (match.Success)
-                    {
-                        state = State.SearchingForExecutionTime;
-                        QueryResults.ExecutionTime += int.Parse(match.Groups[1].Value);
-                        Console.Write(message);
-                    }
-                    break;
-                case State.SearchingForRowCount:
-                    var match2 = Regex.Match(message, @"done processing result set \((\d*) rows\)");
-                    if (match2.Success)
-                    {
-                        state = State.SearchingForSql;
-                        QueryResults.TotalRows += int.Parse(match2.Groups[1].Value);
-                        Console.Write(message);
-                    }
-                    break;
-            }
-
-            switch (loggingEvent.Level.Name)
-            {
-                case "DEBUG":
-                    //Console.WriteLine(RenderLoggingEvent(loggingEvent));
-                    break;
-            }
+            _state = _state.Evaluate(RenderLoggingEvent(loggingEvent));
         }
-    } 
+    }
+
+    public class SearchState
+    {
+        private readonly Regex _pattern;
+        private readonly Func<string,Match,SearchState> _action;
+
+        private SearchState(string pattern, Func<string,Match,SearchState> action)
+        {
+            _pattern = new Regex(pattern);
+            _action = action;
+        }
+
+        public static SearchState InitialState { get { return Sql; }}
+
+        public SearchState Evaluate(string message)
+        {
+            return !_pattern.IsMatch(message) ? this : _action.Invoke(message, _pattern.Match(message));
+        }
+
+        private static readonly SearchState Sql = new SearchState(@"SQL: (.*)$", (mg, mt) =>
+        {
+            QueryResults.Queries++;
+            return ParamerizedSql;
+        });
+
+        private static readonly SearchState ParamerizedSql = new SearchState(@"^select.*from.*", (mg, mt) =>
+        {
+            Console.Write(mg);
+            return ExecutionTime;
+        });
+
+        private static readonly SearchState ExecutionTime = new SearchState(@"ExecuteReader took (\d*) ms", (mg,mt) =>
+        {
+            QueryResults.ExecutionTime += int.Parse(mt.Groups[1].Value);
+            Console.Write(mg);
+            return RowCount;
+        });
+
+        private static readonly SearchState RowCount = new SearchState(@"done processing result set \((\d*) rows\)", (mg,mt) =>
+        {
+            QueryResults.TotalRows += int.Parse(mt.Groups[1].Value);
+            Console.Write(mg);
+            return Sql;
+        });
+    }
 }
