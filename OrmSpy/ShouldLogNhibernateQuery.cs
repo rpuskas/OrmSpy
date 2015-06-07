@@ -18,6 +18,13 @@ using NUnit.Framework;
 
 namespace OrmSpy
 {
+    public static class QueryResults
+    {
+        public static int ExecutionTime;
+        public static int Queries;
+        public static int TotalRows { get; set; }
+    }
+
     public class SqlStatementInterceptor : EmptyInterceptor
     {
         public override SqlString OnPrepareStatement(SqlString sql)
@@ -39,12 +46,7 @@ namespace OrmSpy
             XmlConfigurator.Configure();
             return Fluently.Configure()
                 .Database(SQLiteConfiguration.Standard.InMemory)
-                .ExposeConfiguration(c =>
-                {
-                    _configuration = c;
-                    //c.SetInterceptor(new SqlStatementInterceptor());
-                })
-
+                .ExposeConfiguration(c => { _configuration = c; })
                 .Mappings(m => m.FluentMappings.AddFromAssemblyOf<ShouldLogNhibernateQuery>())
                 .BuildSessionFactory();
         }
@@ -62,6 +64,9 @@ namespace OrmSpy
                 session.Flush();
                 var foo = session.Query<Parent>().Single(x => x.Id == 1);
                 Assert.AreEqual(foo.Id, 1);
+
+                Console.WriteLine("TOTAL QUERIES = {0}", QueryResults.Queries);
+                Console.WriteLine("EXECUTION TIME = {0}", QueryResults.ExecutionTime);
             }
         }
     }
@@ -81,27 +86,54 @@ namespace OrmSpy
 
     public class AwesomeAppender : AppenderSkeleton
     {
+        public enum State
+        {
+            SearchingForSql,
+            SearchingForParamerizedSql,
+            SearchingForExecutionTime,
+            SearchingForRowCount
+        }
+
+        private State state = State.SearchingForSql;
+
         protected override void Append(LoggingEvent loggingEvent)
         {
             var message = RenderLoggingEvent(loggingEvent);
-            var match = Regex.Match(message, @"done processing result set \((\d*) rows\)");
-            if (match.Success)
-            {  
-                Console.WriteLine("ROWS: {0}",match.Groups[1]);
-            }
-
-            var sqlMatch = Regex.Match(message, @"SQL: (.*)$");
-            if (sqlMatch.Success)
+            switch (state)
             {
-                Console.WriteLine(sqlMatch.Groups[1]);
+                case State.SearchingForSql:
+                    if (Regex.Match(message, @"SQL: (.*)$").Success)
+                    {
+                        QueryResults.Queries++;
+                        state = State.SearchingForParamerizedSql;
+                    }
+                    break;
+                case State.SearchingForParamerizedSql:
+                    if (Regex.Match(message, @"^select.*from.*").Success)
+                    {
+                        state = Regex.Match(message, @"^select.*from.*").Success ? State.SearchingForExecutionTime : state;
+                        Console.Write(message);    
+                    }
+                    break;
+                case State.SearchingForExecutionTime:
+                    var match = Regex.Match(message, @"ExecuteReader took (\d*) ms");
+                    if (match.Success)
+                    {
+                        state = State.SearchingForExecutionTime;
+                        QueryResults.ExecutionTime += int.Parse(match.Groups[1].Value);
+                        Console.Write(message);
+                    }
+                    break;
+                case State.SearchingForRowCount:
+                    var match2 = Regex.Match(message, @"done processing result set \((\d*) rows\)");
+                    if (match2.Success)
+                    {
+                        state = State.SearchingForSql;
+                        QueryResults.TotalRows += int.Parse(match2.Groups[1].Value);
+                        Console.Write(message);
+                    }
+                    break;
             }
-
-            var executionTime = Regex.Match(message, @"ExecuteReader took (\d*) ms");
-            if (executionTime.Success)
-            {
-                Console.WriteLine(executionTime.Groups[1]);
-            }
-
 
             switch (loggingEvent.Level.Name)
             {
