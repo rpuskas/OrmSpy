@@ -49,6 +49,7 @@ namespace OrmSpy
                 Assert.AreEqual(OrmSpyResult.Rows, 2);
 
                 OrmSpyResult.Print(Console.WriteLine);
+                OrmSpyResult.Reset();
             }
         }
     }
