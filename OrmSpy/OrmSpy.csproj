@@ -71,6 +71,8 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Domain.cs" />
+    <Compile Include="OrmSpyAppender.cs" />
     <Compile Include="ShouldLogNhibernateQuery.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
