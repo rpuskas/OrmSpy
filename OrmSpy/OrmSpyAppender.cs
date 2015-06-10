@@ -10,7 +10,8 @@ namespace OrmSpy
         private SearchState _state = SearchState.InitialState;
         protected override void Append(LoggingEvent loggingEvent)
         {
-            _state = _state.Evaluate(RenderLoggingEvent(loggingEvent));
+            Console.Write(RenderLoggingEvent(loggingEvent));
+            //_state = _state.Evaluate(RenderLoggingEvent(loggingEvent));
         }
     }
 
@@ -56,13 +57,13 @@ namespace OrmSpy
             return !_pattern.IsMatch(message) ? this : _action.Invoke(message, _pattern.Match(message));
         }
 
-        private static readonly SearchState Sql = new SearchState(@"SQL: (.*)$", (mg, mt) =>
+        private static readonly SearchState Sql = new SearchState(@"Building an IDbCommand object.*", (mg, mt) =>
         {
             OrmSpyResult.Queries++;
             return ParamerizedSql;
         });
 
-        private static readonly SearchState ParamerizedSql = new SearchState(@"^select.*from.*;.*", (mg, mt) =>
+        private static readonly SearchState ParamerizedSql = new SearchState(@"(?i)^select.*from.*;.*", (mg, mt) =>
         {
             Console.Write("Unformatted: {0}", mg);
             Console.WriteLine("Formatted:   {0}", ReplaceQueryParametersWithValues(mg));

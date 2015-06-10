@@ -1,12 +1,15 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using FluentNHibernate.Cfg;
 using FluentNHibernate.Cfg.Db;
 using log4net.Config;
 using NHibernate;
 using NHibernate.Cfg;
+using NHibernate.Criterion;
 using NHibernate.Linq;
 using NHibernate.Tool.hbm2ddl;
+using NHibernate.Util;
 using NUnit.Framework;
 
 namespace OrmSpy
@@ -34,22 +37,26 @@ namespace OrmSpy
             using (var session = sessionFactory.OpenSession())
             {
                 schemaExport.Execute(true, true, false, session.Connection, null);
-                var parent = new Parent();
-                var parent2 = new Parent();
-                session.SaveOrUpdate(parent);
-                session.SaveOrUpdate(parent2);
+                var men = new[] { new Man(), new Man(), new Man() };
+                var women = new[] { new Woman(), new Woman(), new Woman() };
+                var marriage = new Marriage() {Man = men.First(), Woman = women.First()};
+
+                men.ForEach(m => session.Save(m));
+                women.ForEach(w => session.Save(w));
+                session.Save(marriage);
+
                 session.Flush();
+                session.Clear();
 
-                var foo = session.Query<Parent>().Single(x => x.Id == 1);
-                var foo2 = session.Query<Parent>().Single(x => x.Id == 2);
-                
-                Assert.AreEqual(foo.Id, 1);
-                Assert.AreEqual(foo2.Id, 2);
-                Assert.AreEqual(OrmSpyResult.Queries,2);
-                Assert.AreEqual(OrmSpyResult.Rows, 2);
+                var foo = session.Query<Marriage>().Fetch(x => x.Man).ThenFetch(x => x.Properties).ToList();
+                var marriedMen = foo.Select(x => x.Man);
+                var detachedCriteria = marriedMen.Select(x => x.Id);
+                var singleMen = session.QueryOver<Man>().WhereRestrictionOn(m => m.Id).Not.IsIn(detachedCriteria.ToList());
 
+                Assert.AreEqual(singleMen.List().Count,2);
+                Assert.AreEqual(foo.Single().Man.Properties.Age, 21);
                 OrmSpyResult.Print(Console.WriteLine);
-                OrmSpyResult.Reset();
+   
             }
         }
     }
